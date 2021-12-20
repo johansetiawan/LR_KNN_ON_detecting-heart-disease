@@ -1,0 +1,282 @@
+---
+title: "Classification Models to Detect the Presence of Heart Disease"
+author: "Johan Setiawan"
+date: "12/18/2021"
+output: rmdformats::material
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Introduction
+
+## Goal
+
+This is a dataset created to predict the presence of a heart disease. It was built with the purpose of helping ML researchers to build a model and find any other trends in heart data to predict certain cardiovascular events or find any clear indications of heart healths. The predicted output gives them a fair idea about whether a heart disease is present or absent in the patient.
+
+## What we will do
+We will use Logisitic Regression and KNN models on Heart Disease UCI data from Kaggle. We want to know the relationship among variables, especially between the target with other variables. We also want to predict the chance of someone having any heart disease using historical data. You can download the data here: https://www.kaggle.com/ronitf/heart-disease-uci
+
+## About the data
+#### Some descriptions of the columns:
+<br>
+- `age`: age in years <br>
+- `sex`: 1 = male, 0 = female 
+- `cp` : chest pain types (4 values) <br>
+- `trestbps`:resting blood pressure on admission to the hospital (mm Hg) <br>
+- `chol` : serum cholestoral (mg/dl) <br>
+- `fbs` : fasting blood sugar > 120 mg/dl (1 = true, 0 = false) <br>
+- `restecg` : resting electrocardiographic results (values 0,1,2) <br>
+- `thalach` : maximum heart rate achieved <br>
+- `exang` : exercise induced angina (1 = yes, 0 = no) <br>
+- `oldpeak`: ST depression induced by exercise relative to rest <br>
+- `slope` : the slope of the peak exercise ST segment <br>
+- `ca` : number of major vessels (0-3) colored by flourosopy <br>
+- `thal`: 3 = normal; 6 = fixed defect; 7 = reversable defect <br>
+
+
+# Import Library
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(performance)
+library(MLmetrics)
+library(rmdformats)
+library(class)
+library(caret)
+```
+
+# Data Preparation
+
+## Read data
+```{r}
+heart <- read.csv("heart.csv")
+rmarkdown::paged_table(heart)
+```
+
+# Data Wrangling/Preprocessing
+
+## Check for missing values
+```{r}
+heart %>% 
+  is.na() %>% 
+  colSums()/nrow(heart)
+```
+No missing value, thus the data is well prepared.
+
+
+## Check if there are any mismatched data type and change them if necessary
+Changing them to the right data type will ease the data analytics and machine learning process.
+
+```{r}
+str(heart)
+```
+Looks like we have to change `sex`, `cp`, `fbs`, `exang`  and `target` to Factor
+
+## Change the respective columns to the right data types
+```{r}
+heart <- heart %>% 
+        mutate_at(vars(sex, cp, fbs, exang, target), as.factor)
+str(heart)
+```
+# Exploratory Data Analysis
+
+## Check the age distribution of the data
+```{r}
+ggplot(heart, aes(x=age)) + geom_histogram(bins =50) + 
+labs(x="Age", y="Density", title="Age distribution of the data")
+```
+The chart shows it is slightly skewed to the right and majority of the data samples are taken of people above the age of 50
+
+## Check the gender distribution of the data
+
+```{r}
+ggplot(heart, aes(x=sex)) + geom_histogram(bins =50, stat="count", mapping = aes(fill = sex)) + 
+labs(x="Sex", y="Density", title="Gender distribution of the data")
+```
+
+There is more than twice of the male than the female in the data (0 = female, 1 = male)
+
+# Cross Validation
+
+This step is necessary to prepare some "unseen" data for the ML model to determine its accuracy and performance
+We will use 75:25 proportion for this data
+
+## Check if the target class proportion is balanced
+```{r}
+prop.table(table(heart$target))
+```
+It's a very balanced dataset.
+
+## Splitting the data into train and test sets
+```{r}
+set.seed(123)
+index <- sample(nrow(heart), nrow(heart)*0.75)
+
+data_train <- heart[index,]
+data_test <- heart[-index,]
+```
+
+## Check target class proportion on the training data 
+```{r}
+prop.table(table(data_train$target))
+```
+
+
+# Model Building {.tabset}
+
+### Numeric variables scaling 
+To make the scale of all the numeric variables more uniform.
+```{r}
+# Take all the numeric variables
+data_train_numeric <- data_train %>% select_if(is.numeric)
+data_test_numeric <- data_test %>% select_if(is.numeric)
+
+# Take all the non numeric variables
+data_train_nn <- data_train %>% select(sex, cp, fbs, exang, target)
+data_test_nn <- data_test %>% select(sex, cp, fbs, exang, target)
+
+# Scale all the numeric variables
+data_train_numeric_scaled <- scale(data_train_numeric)
+data_test_numeric_scaled <- scale(data_test_numeric,
+                           center = attr(data_train_numeric_scaled, "scaled:center"),
+                           scale = attr(data_train_numeric_scaled, "scaled:scale"))
+
+# Combining the numeric data with the non numeric data
+data_train_new <- cbind(data_train_nn, data_train_numeric_scaled)
+data_test_new <- cbind(data_test_nn, data_test_numeric_scaled)
+```
+
+### Separating target column from the rest of the dataset
+```{r}
+data_train_x <- data_train_new %>% select(-target)
+data_test_x <- data_test_new %>% select(-target)
+  
+data_train_y <- data_train_new[,"target"]
+data_test_y <- data_test_new[,"target"]
+```
+
+
+## Logistic Regression model
+```{r}
+lg_model <- glm(formula = target~.,
+                   family="binomial",
+                   data = data_train_new)
+```
+
+## KNN model
+
+### Determine the number of class in the target variable
+```{r}
+unique(data_train_new$target)
+```
+Since there are 2 (even number) classes for the target variable, we have to use odd number for the K in the KNN model
+
+### Determine the K for KNN model
+```{r}
+sqrt(nrow(data_train_new))
+```
+
+```{r}
+knn_model <- knn(train = data_train_x,
+                     test = data_test_x,
+                     cl = data_train_y,
+                     k = 15)
+```
+
+
+# Model Evaluation {.tabset}
+
+Evaluation of the model will be done with confusion matrix. Confusion matrix is a table that shows four different category: True Positive, True Negative, False Positive, and False Negative.
+The performance will be the Accuracy, Sensitivity/Recall, Specificity, and Precision (Saito and Rehmsmeier, 2015). Accuracy measures how many of our data is correctly predicted. Sensitivity measures out of all positive outcome, how many are correctly predicted. Specificty measure how many negative outcome is correctly predicted. Precision measures how many of our positive prediction is correct.
+
+In this case, we will be evaluating our model using Recall since we emphasize more on having lesser false negative than false positive.
+
+## Logistic regression confusion matrix
+
+Making a prediction using logistic regression model
+```{r}
+data_test_new$pred_Risk <- predict(object = lg_model,
+        newdata = data_test_new,
+        type = "response")
+
+data_test_new$pred_Label <- ifelse(data_test_new$pred_Risk > 0.5 , yes = "1", no = "0")
+data_test_new$pred_Label <- as.factor(data_test_new$pred_Label)
+```
+
+
+```{r}
+confusionMatrix(data = as.factor(data_test_new$pred_Label),
+                reference = as.factor(data_test_y),
+                positive = "1")
+```
+
+## KNN confusion matrix
+```{r}
+confusionMatrix(data = as.factor(knn_model),
+                reference = as.factor(data_test_y),
+                positive = "1")
+```
+
+# Model fine-tuning{.tabset}
+
+## Logistic regression model fine-tuning
+
+### Using step-wise regression to find the best predictors
+```{r}
+lg_tuned <- step(lg_model, direction = "backward", trace = F)
+```
+
+### Making a prediction using fine-tuned logistic regression model
+```{r}
+data_test_new$pred_Risk <- predict(object = lg_tuned,
+        newdata = data_test_new,
+        type = "response")
+
+data_test_new$pred_Label <- ifelse(data_test_new$pred_Risk > 0.5 , yes = "1", no = "0")
+data_test_new$pred_Label <- as.factor(data_test_new$pred_Label)
+```
+
+### Logistic regression model confusion matrix
+```{r}
+confusionMatrix(data = as.factor(data_test_new$pred_Label),
+                reference = as.factor(data_test_y),
+                positive = "1")
+```
+
+## KNN model fine-tuning
+
+### Changing the K value of KNN
+```{r}
+knn_tuned <- knn(train = data_train_x,
+                test = data_test_x,
+                cl = data_train_y,
+                k = 17)
+```
+
+### KNN model confusion matrix
+```{r}
+confusionMatrix(data = as.factor(knn_tuned),
+                reference = as.factor(data_test_y),
+                positive = "1")
+```
+
+
+# Conclusion
+- Since we are looking for the `recall/sensitivity`, KNN model performed better in this dataset compared to the logistic regression model.
+- Original logistic regression model performed better on the accuracy and recall compared to the fine-tuned one.
+
+In the medical world, I think it is really crucial to have a model that reduces the false detection of a healthy person when they are actually not, especially in the cardiovascular world as the heart works as one of our core organs. Thus, giving false treatment to the actually healthy group of people might be less dangerous.
+
+
+
+# Reference
+
+Hungarian Institute of Cardiology. Budapest: Andras Janosi, M.D.
+University Hospital, Zurich, Switzerland: William Steinbrunn, M.D.
+University Hospital, Basel, Switzerland: Matthias Pfisterer, M.D.
+V.A. Medical Center, Long Beach and Cleveland Clinic Foundation: Robert Detrano, M.D., Ph.D.
+David W. Aha (aha '@' ics.uci.edu) (714) 856-8779
+
+
